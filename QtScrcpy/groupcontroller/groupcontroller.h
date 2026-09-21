@@ -9,9 +9,11 @@
 class GroupController : public QObject, public qsc::DeviceObserver
 {
     Q_OBJECT
+    friend class DeviceGridTest;
 public:
     static GroupController& instance();
 
+    void setGridTargets(const QStringList &selected, const QString &host, bool enabled);
     void updateDeviceState(const QString& serial);
     void addDevice(const QString& serial);
     void removeDevice(const QString& serial);
@@ -53,6 +55,10 @@ private:
     QSize getFrameSize(const QString& serial);
 
 private:
+    bool m_gridMode = false;
+    bool m_syncEnabled = false;
+    QStringList m_selected;
+    QString m_host;
     QVector<QString> m_devices;
 };
 

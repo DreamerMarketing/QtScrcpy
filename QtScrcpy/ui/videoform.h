@@ -24,6 +24,11 @@ public:
     explicit VideoForm(bool framelessWindow = false, bool skin = true, bool showToolBar = true, int decodeMode = 0, QWidget *parent = 0);
     ~VideoForm();
 
+    void setEmbedded();
+signals:
+    void activated(const QString &serial);
+    void zoomRequested(const QString &serial);
+public:
     void staysOnTop(bool top = true);
     void updateShowSize(const QSize &newSize);
     void updateRender(int width, int height, uint8_t* dataY, uint8_t* dataU, uint8_t* dataV, int linesizeY, int linesizeU, int linesizeV);
@@ -95,6 +100,7 @@ private:
     QSize m_normalSize;
     QPoint m_dragPosition;
     float m_widthHeightRatio = 0.5f;
+    bool m_embedded = false;
     bool m_skin = true;
     QPoint m_fullScreenBeforePos;
     QString m_serial;

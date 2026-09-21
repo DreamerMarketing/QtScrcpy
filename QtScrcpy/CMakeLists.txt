@@ -133,7 +133,10 @@ set(LINK_LIBS
 
 if (QT_DESIRED_VERSION MATCHES 6)
     # list(APPEND LINK_LIBS Qt${QT_DESIRED_VERSION}::Core5Compat)
-    list(APPEND LINK_LIBS Qt${QT_DESIRED_VERSION}::GuiPrivate)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        find_package(Qt6 REQUIRED COMPONENTS GuiPrivate)
+        list(APPEND LINK_LIBS Qt6::GuiPrivate)
+    endif()
     list(APPEND LINK_LIBS Qt${QT_DESIRED_VERSION}::OpenGL)
     list(APPEND LINK_LIBS Qt${QT_DESIRED_VERSION}::OpenGLWidgets)
 else()
@@ -179,6 +182,8 @@ set(QC_UI_SOURCES
     ui/videoform.h
     ui/videoform.cpp
     ui/videoform.ui
+    ui/devicegrid.cpp
+    ui/devicegrid.h
     ui/dialog.cpp
     ui/dialog.h
     ui/dialog.ui
@@ -411,3 +416,18 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ${LINK_LIBS}
     QtScrcpyCore
 )
+
+option(BUILD_GRID_TESTS "Build device grid regression tests" OFF)
+if(BUILD_GRID_TESTS)
+    find_package(Qt${QT_DESIRED_VERSION} REQUIRED COMPONENTS Test)
+    set(GRID_TEST_SOURCES ${QC_PROJECT_SOURCES})
+    list(REMOVE_ITEM GRID_TEST_SOURCES main.cpp)
+    add_executable(DeviceGridTest ${GRID_TEST_SOURCES} ../tests/devicegrid_test.cpp)
+    target_include_directories(DeviceGridTest PRIVATE fontawesome util uibase ui render)
+    target_link_libraries(DeviceGridTest PRIVATE ${LINK_LIBS} QtScrcpyCore Qt${QT_DESIRED_VERSION}::Test)
+    if(APPLE)
+        target_link_libraries(DeviceGridTest PRIVATE "-framework AppKit" "-framework Metal" "-framework CoreVideo" "-framework QuartzCore")
+    endif()
+    enable_testing()
+    add_test(NAME DeviceGridTest COMMAND DeviceGridTest)
+endif()

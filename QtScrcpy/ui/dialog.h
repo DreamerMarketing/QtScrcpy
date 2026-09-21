@@ -27,6 +27,7 @@ class QCheckBox;
 class QGroupBox;
 class QPushButton;
 class QSpinBox;
+class VideoForm;
 class Dialog : public QWidget
 {
     Q_OBJECT
@@ -35,6 +36,14 @@ public:
     explicit Dialog(QWidget *parent = 0);
     ~Dialog();
 
+    void startGridDevice(const QString &serial);
+    void refreshGridDevices() { on_updateDevice_clicked(); }
+    void setGridMode() { m_gridMode = true; }
+signals:
+    void gridDevicesChanged(const QStringList &serials);
+    void gridVideoReady(const QString &serial, const QString &name, VideoForm *video);
+    void gridDeviceStopped(const QString &serial);
+public:
     void outLog(const QString &log, bool newLine = true);
     bool filterLog(const QString &log);
     void getIPbyIp();
@@ -115,6 +124,7 @@ protected:
     void closeEvent(QCloseEvent *event);
 
 private:
+    bool m_gridMode = false;
     Ui::Widget *ui;
     qsc::AdbProcess m_adb;
     QSystemTrayIcon *m_hideIcon;

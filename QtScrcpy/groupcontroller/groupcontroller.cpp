@@ -10,7 +10,10 @@ GroupController::GroupController(QObject *parent) : QObject(parent)
 
 bool GroupController::isHost(const QString &serial)
 {
-    auto data = qsc::IDeviceManage::getInstance().getDevice(serial)->getUserData();
+    if (m_gridMode) return !m_syncEnabled || !m_selected.contains(serial) || serial == m_host;
+    auto device = qsc::IDeviceManage::getInstance().getDevice(serial);
+    if (!device) return true;
+    auto data = device->getUserData();
     if (!data) {
         return true;
     }
@@ -20,7 +23,9 @@ bool GroupController::isHost(const QString &serial)
 
 QSize GroupController::getFrameSize(const QString &serial)
 {
-    auto data = qsc::IDeviceManage::getInstance().getDevice(serial)->getUserData();
+    auto device = qsc::IDeviceManage::getInstance().getDevice(serial);
+    if (!device) return QSize();
+    auto data = device->getUserData();
     if (!data) {
         return QSize();
     }
@@ -34,8 +39,23 @@ GroupController &GroupController::instance()
     return gc;
 }
 
+void GroupController::setGridTargets(const QStringList &selected, const QString &host, bool enabled)
+{
+    m_gridMode = true;
+    m_selected = selected;
+    m_host = host;
+    m_syncEnabled = enabled && selected.contains(host);
+    for (const auto &serial : m_devices) {
+        auto device = qsc::IDeviceManage::getInstance().getDevice(serial);
+        if (!device) continue;
+        device->deRegisterDeviceObserver(this);
+        if (m_syncEnabled && serial == host) device->registerDeviceObserver(this);
+    }
+}
+
 void GroupController::updateDeviceState(const QString &serial)
 {
+    if (m_gridMode) return;
     if (!m_devices.contains(serial)) {
         return;
     }

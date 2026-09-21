@@ -54,6 +54,17 @@ VideoForm::VideoForm(bool framelessWindow, bool skin, bool showToolbar, int deco
     }
 }
 
+void VideoForm::setEmbedded()
+{
+    m_embedded = true;
+    m_skin = false;
+    show_toolbar = false;
+    setStyleSheet("#videoForm { background: #101318; border: none; }");
+    setFocusPolicy(Qt::StrongFocus);
+    setMinimumSize(0, 0);
+    layout()->setContentsMargins(0, 0, 0, 0);
+}
+
 VideoForm::~VideoForm()
 {
     delete ui;
@@ -508,6 +519,7 @@ void VideoForm::updateShowSize(const QSize &newSize)
         m_widthHeightRatio = 1.0f * newSize.width() / newSize.height();
         ui->keepRatioWidget->setWidthHeightRatio(m_widthHeightRatio);
 
+        if (m_embedded) return;
         bool vertical = m_widthHeightRatio < 1.0f ? true : false;
         QSize showSize = newSize;
         QRect screenRect = getScreenRect();
@@ -563,6 +575,7 @@ void VideoForm::onVideoSessionChanged(const QSize &size, bool clientResized)
 
 void VideoForm::switchFullScreen()
 {
+    if (m_embedded) { emit zoomRequested(m_serial); return; }
     if (isFullScreen()) {
         // 横屏全屏铺满全屏，恢复时，恢复保持宽高比
         if (m_widthHeightRatio > 1.0f) {
@@ -682,6 +695,7 @@ void VideoForm::staysOnTop(bool top)
 
 void VideoForm::mousePressEvent(QMouseEvent *event)
 {
+    if (m_embedded) { setFocus(); emit activated(m_serial); }
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
     if (event->button() == Qt::MiddleButton) {
         if (device && !device->isCurrentCustomKeymap()) {
@@ -797,6 +811,7 @@ void VideoForm::mouseMoveEvent(QMouseEvent *event)
 
 void VideoForm::mouseDoubleClickEvent(QMouseEvent *event)
 {
+    if (m_embedded && event->button() == Qt::LeftButton) { emit zoomRequested(m_serial); event->accept(); return; }
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
     QWidget *vw = videoWidget();
     if (event->button() == Qt::LeftButton && vw && !vw->geometry().contains(event->pos())) {
@@ -858,6 +873,7 @@ void VideoForm::wheelEvent(QWheelEvent *event)
 
 void VideoForm::keyPressEvent(QKeyEvent *event)
 {
+    if (m_embedded) emit activated(m_serial);
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
     if (!device) {
         return;
@@ -907,6 +923,7 @@ void VideoForm::showEvent(QShowEvent *event)
 
 void VideoForm::resizeEvent(QResizeEvent *event)
 {
+    if (m_embedded) { QWidget::resizeEvent(event); return; }
     Q_UNUSED(event)
     if (m_flexDisplay) {
         m_pendingDisplaySize = ui->keepRatioWidget->size();

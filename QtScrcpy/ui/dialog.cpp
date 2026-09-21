@@ -153,6 +153,7 @@ Dialog::Dialog(QWidget *parent) : QWidget(parent), ui(new Ui::Widget)
             //log = m_adb.getStdOut();
             if (args.contains("devices")) {
                 QStringList devices = m_adb.getDevicesSerialFromStdOut();
+                emit gridDevicesChanged(devices);
                 ui->serialBox->clear();
                 ui->connectedPhoneList->clear();
                 for (auto &item : devices) {
@@ -223,7 +224,7 @@ void Dialog::initUI()
     setAttribute(Qt::WA_DeleteOnClose);
     //setWindowFlags(windowFlags() | Qt::WindowMinimizeButtonHint | Qt::WindowCloseButtonHint | Qt::CustomizeWindowHint);
 
-    setWindowTitle(Config::getInstance().getTitle());
+    setWindowTitle(QStringLiteral("婚字头 · 连接与设置"));
 #ifdef Q_OS_LINUX
     // Set window icon (inherits from application icon set in main.cpp)
     // If application icon was set, this will use it automatically
@@ -1250,19 +1251,37 @@ void Dialog::getIPbyIp()
     m_adb.execute(ui->serialBox->currentText().trimmed(), adbArgs);
 }
 
+void Dialog::startGridDevice(const QString &serial)
+{
+    if (qsc::IDeviceManage::getInstance().getDevice(serial)) return;
+    int index = ui->serialBox->findText(serial);
+    if (index < 0) { ui->serialBox->addItem(serial); index = ui->serialBox->count() - 1; }
+    ui->serialBox->setCurrentIndex(index);
+    ui->useSingleModeCheck->setChecked(false);
+    ui->notDisplayCheck->setChecked(false);
+    on_startServerBtn_clicked();
+}
+
 void Dialog::onDeviceConnected(bool success, const QString &serial, const QString &deviceName, const QSize &size)
 {
-    Q_UNUSED(deviceName);
+
     if (!success) {
         return;
     }
-    auto videoForm = new VideoForm(ui->framelessCheck->isChecked(), Config::getInstance().getSkin(), ui->showToolbar->isChecked(), ui->decodeModeBox->currentIndex());
+    auto videoForm = new VideoForm(!m_gridMode && ui->framelessCheck->isChecked(), !m_gridMode && Config::getInstance().getSkin(), !m_gridMode && ui->showToolbar->isChecked(), ui->decodeModeBox->currentIndex());
     videoForm->setSerial(serial);
 
     qsc::IDeviceManage::getInstance().getDevice(serial)->setUserData(static_cast<void*>(videoForm));
     qsc::IDeviceManage::getInstance().getDevice(serial)->registerDeviceObserver(videoForm);
 
 
+    if (m_gridMode) {
+        videoForm->setEmbedded();
+        videoForm->updateShowSize(size);
+        GroupController::instance().addDevice(serial);
+        emit gridVideoReady(serial, deviceName, videoForm);
+        return;
+    }
     videoForm->showFPS(ui->fpsCheck->isChecked());
 
     if (ui->alwaysTopCheck->isChecked()) {
@@ -1300,6 +1319,7 @@ void Dialog::onDeviceConnected(bool success, const QString &serial, const QStrin
 
 void Dialog::onDeviceDisconnected(QString serial)
 {
+    emit gridDeviceStopped(serial);
     GroupController::instance().removeDevice(serial);
     auto device = qsc::IDeviceManage::getInstance().getDevice(serial);
     if (!device) {

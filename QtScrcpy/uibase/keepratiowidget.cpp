@@ -49,16 +49,10 @@ void KeepRatioWidget::adjustSubWidget()
     QPoint pos(0, 0);
     int width = 0;
     int height = 0;
-    if (m_widthHeightRatio > 1.0f) {
-        // base width
-        width = curSize.width();
-        height = curSize.width() / m_widthHeightRatio;
-        pos.setY((curSize.height() - height) / 2);
-    } else if (m_widthHeightRatio > 0.0f) {
-        // base height
-        height = curSize.height();
-        width = curSize.height() * m_widthHeightRatio;
-        pos.setX((curSize.width() - width) / 2);
+    if (m_widthHeightRatio > 0.0f) {
+        width = qMin(curSize.width(), int(curSize.height() * m_widthHeightRatio));
+        height = int(width / m_widthHeightRatio);
+        pos = QPoint((curSize.width() - width) / 2, (curSize.height() - height) / 2);
     } else {
         // full widget
         height = curSize.height();

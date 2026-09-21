@@ -16,6 +16,7 @@
 
 #include "config.h"
 #include "dialog.h"
+#include "devicegrid.h"
 #include "mousetap/mousetap.h"
 #include "singleinstance.h"
 
@@ -102,6 +103,7 @@ int main(int argc, char *argv[])
 
     g_oldMessageHandler = qInstallMessageHandler(myMessageOutput);
     QApplication a(argc, argv);
+    QApplication::setApplicationDisplayName(QStringLiteral("婚字头"));
 
     // Only one QtScrcpy per user. If one is already running (possibly hidden in
     // the system tray), ask it to show its window and exit.
@@ -162,8 +164,9 @@ int main(int argc, char *argv[])
     qsc::AdbProcess::setAdbPath(Config::getInstance().getAdbPath());
 
     g_mainDlg = new Dialog {};
-    g_mainDlg->show();
-    QObject::connect(&singleInstance, &SingleInstance::activateRequested, g_mainDlg, &Dialog::bringToFront);
+    DeviceGrid grid(g_mainDlg);
+    grid.show();
+    QObject::connect(&singleInstance, &SingleInstance::activateRequested, &grid, [&grid] { grid.showNormal(); grid.raise(); grid.activateWindow(); });
 
     qInfo() << QObject::tr("This software is completely open source and free. Use it at your own risk. You can download it at the "
             "following address:");
