@@ -1,5 +1,6 @@
 #include <QAudioOutput>
 #include <QCoreApplication>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QHostAddress>
 #include <QTcpSocket>
@@ -83,7 +84,9 @@ bool AudioOutput::runSndcpyProcess(const QString &serial, int port, bool wait)
 
 #ifdef Q_OS_WIN32
     QStringList params{serial, QString::number(port)};
-    m_sndcpy.start("sndcpy.bat", params);
+    const QString applicationDir = QCoreApplication::applicationDirPath();
+    m_sndcpy.setWorkingDirectory(applicationDir);
+    m_sndcpy.start(QDir(applicationDir).filePath("sndcpy.bat"), params);
 #else
     QStringList params{"sndcpy.sh", serial, QString::number(port)};
     m_sndcpy.setWorkingDirectory(QCoreApplication::applicationDirPath());

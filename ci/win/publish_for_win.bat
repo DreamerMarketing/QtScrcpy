@@ -69,13 +69,19 @@ if exist %publish_path% (
 
 :: 复制要发布的包
 xcopy %release_path% %publish_path% /E /Y
+if errorlevel 1 goto return
 xcopy %adb_path% %publish_path% /Y
+if errorlevel 1 goto return
 xcopy %jar_path% %publish_path% /Y
+if errorlevel 1 goto return
 xcopy %keymap_path% %publish_path%keymap\ /E /Y
+if errorlevel 1 goto return
 xcopy %config_path% %publish_path%config\ /E /Y
+if errorlevel 1 goto return
 
 :: 添加qt依赖包
 windeployqt %publish_path%\QtScrcpy.exe
+if errorlevel 1 goto return
 
 :: 删除多余qt依赖包
 rmdir /s/q %publish_path%\iconengines
@@ -101,17 +107,18 @@ if /i %cpu_mode% == x86 (
 
 :: copy vcruntime dll
 if /i %cpu_mode% == x64 (
-    cp "C:\Windows\System32\msvcp140_1.dll" %publish_path%\msvcp140_1.dll
-    cp "C:\Windows\System32\msvcp140.dll" %publish_path%\msvcp140.dll
-    cp "C:\Windows\System32\vcruntime140.dll" %publish_path%\vcruntime140.dll
+    copy /Y "C:\Windows\System32\msvcp140_1.dll" %publish_path%\msvcp140_1.dll
+    copy /Y "C:\Windows\System32\msvcp140.dll" %publish_path%\msvcp140.dll
+    copy /Y "C:\Windows\System32\vcruntime140.dll" %publish_path%\vcruntime140.dll
     :: 只有x64需要
-    cp "C:\Windows\System32\vcruntime140_1.dll" %publish_path%\vcruntime140_1.dll
+    copy /Y "C:\Windows\System32\vcruntime140_1.dll" %publish_path%\vcruntime140_1.dll
 ) else (
-    cp "C:\Windows\SysWOW64\msvcp140_1.dll" %publish_path%\msvcp140_1.dll
-    cp "C:\Windows\SysWOW64\msvcp140.dll" %publish_path%\msvcp140.dll
-    cp "C:\Windows\SysWOW64\vcruntime140.dll" %publish_path%\vcruntime140.dll
+    copy /Y "C:\Windows\SysWOW64\msvcp140_1.dll" %publish_path%\msvcp140_1.dll
+    copy /Y "C:\Windows\SysWOW64\msvcp140.dll" %publish_path%\msvcp140.dll
+    copy /Y "C:\Windows\SysWOW64\vcruntime140.dll" %publish_path%\vcruntime140.dll
     
 )
+if errorlevel 1 goto return
 
 ::cp "C:\Program Files (x86)\Microsoft Visual Studio\Installer\VCRUNTIME140.dll" %publish_path%\VCRUNTIME140.dll
 ::cp "C:\Program Files (x86)\Microsoft Visual Studio\Installer\api-ms-win-crt-runtime-l1-1-0.dll" %publish_path%\api-ms-win-crt-runtime-l1-1-0.dll

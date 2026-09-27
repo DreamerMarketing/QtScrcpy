@@ -31,6 +31,7 @@
 #include <QUrl>
 
 #include "config.h"
+#include "adbcommand.h"
 #include "dialog.h"
 #include "ui_dialog.h"
 #include "videoform.h"
@@ -706,11 +707,9 @@ void Dialog::execAdbCmd()
     }
     QString cmd = ui->adbCommandEdt->text().trimmed();
     outLog("adb " + cmd, false);
-#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
-    m_adb.execute(ui->serialBox->currentText().trimmed(), cmd.split(" ", Qt::SkipEmptyParts));
-#else
-    m_adb.execute(ui->serialBox->currentText().trimmed(), cmd.split(" ", QString::SkipEmptyParts));
-#endif
+    const auto args = adbCommandArguments(cmd);
+    if (args.isEmpty()) { outLog(tr("please enter an adb command")); return; }
+    m_adb.execute(ui->serialBox->currentText().trimmed(), args);
 }
 
 void Dialog::delayMs(int ms)

@@ -18,6 +18,7 @@
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QPlainTextEdit>
 #include <QScrollArea>
 #include <QSettings>
 #include <QSignalBlocker>
@@ -28,17 +29,15 @@
 #include <algorithm>
 
 DeviceGrid::DeviceGrid(Dialog *settings, QWidget *parent)
-    : QWidget(parent), m_settings(settings), m_transfer(this)
+    : QWidget(parent), m_settings(settings)
 {
     settings->setGridMode();
-    m_transferTimeout = new QTimer(this);
-    m_transferTimeout->setSingleShot(true);
-    connect(m_transferTimeout, &QTimer::timeout, this, [this] { m_transfer.kill(); });
     setWindowTitle(QStringLiteral("婚字头 · 多设备工作台"));
     resize(1320, 860);
     setMinimumSize(900, 620);
     setStyleSheet(
         "DeviceGrid {background:#f3f5f9;color:#182336;}"
+        "QMessageBox,QInputDialog {background:#f3f5f9;}"
         "QWidget {font-family:'PingFang SC';font-size:13px;}"
         "QWidget#sidebar,QWidget#workspace {background:#ffffff;border:1px solid #e3e8ef;border-radius:12px;}"
         "QLabel,QCheckBox {color:#344054;border:none;background:transparent;}"
@@ -112,6 +111,10 @@ DeviceGrid::DeviceGrid(Dialog *settings, QWidget *parent)
     groupRow->addWidget(m_groups, 1);
     auto add = button("+", groupRow);
     auto remove = button("−", groupRow);
+    remove->setEnabled(!m_groups->currentData().toString().isEmpty());
+    connect(m_groups, QOverload<int>::of(&QComboBox::currentIndexChanged), remove, [this, remove] {
+        remove->setEnabled(!m_groups->currentData().toString().isEmpty());
+    });
     add->setFixedWidth(34); remove->setFixedWidth(34);
     add->setToolTip(QStringLiteral("新建分组")); remove->setToolTip(QStringLiteral("删除当前分组"));
     left->addLayout(groupRow);
@@ -171,6 +174,25 @@ DeviceGrid::DeviceGrid(Dialog *settings, QWidget *parent)
     textRow->addWidget(input, 1);
     textRow->addWidget(send);
     content->addLayout(textRow);
+    auto commandRow = new QHBoxLayout;
+    m_command = new QLineEdit;
+    m_command->setObjectName("shellCommand");
+    m_command->setPlaceholderText(QStringLiteral("Android shell 命令，例如 getprop ro.product.model"));
+    auto execute = button(QStringLiteral("执行命令"), commandRow);
+    commandRow->insertWidget(0, m_command, 1);
+    auto cancel = button(QStringLiteral("取消任务"), commandRow);
+    content->addLayout(commandRow);
+    m_jobOutput = new QPlainTextEdit;
+    m_jobOutput->setObjectName("jobOutput");
+    m_jobOutput->setReadOnly(true);
+    m_jobOutput->setMaximumBlockCount(500);
+    m_jobOutput->setMaximumHeight(110);
+    m_jobOutput->setStyleSheet("background:#f8f9fc;color:#27364b;border:1px solid #e0e5ee;");
+    m_jobOutput->setPlaceholderText(QStringLiteral("每台设备的任务结果显示在这里；命令不会在 Windows 上执行"));
+    content->addWidget(m_jobOutput);
+    connect(execute, &QPushButton::clicked, this, &DeviceGrid::batchCommand);
+    connect(m_command, &QLineEdit::returnPressed, this, &DeviceGrid::batchCommand);
+    connect(cancel, &QPushButton::clicked, this, &DeviceGrid::cancelJobs);
     m_jobsLabel = new QLabel(QStringLiteral("批量文件发送到 /sdcard/Download/"));
     m_jobsLabel->setStyleSheet("color:#98a2b3;font-size:11px;");
     content->addWidget(m_jobsLabel);
@@ -224,7 +246,7 @@ DeviceGrid::DeviceGrid(Dialog *settings, QWidget *parent)
     connect(assign, &QPushButton::clicked, this, [this] {
         QStringList groups{QStringLiteral("未分组")};
         for (int i = 1; i < m_groups->count(); ++i) groups << m_groups->itemText(i);
-        if (m_selected.isEmpty()) { m_status->setText(QStringLiteral("请先勾选设备")); return; }
+        if (actionTargets().isEmpty()) return;
         bool ok;
         QString group = QInputDialog::getItem(this, QStringLiteral("移动设备"), QStringLiteral("目标分组"), groups, 0, false, &ok);
         if (!ok) return;
@@ -234,16 +256,24 @@ DeviceGrid::DeviceGrid(Dialog *settings, QWidget *parent)
         saveGroups(); rebuildList();
     });
     connect(start, &QPushButton::clicked, this, [this] {
-        for (const auto &serial : selectedDevices()) m_settings->startGridDevice(serial);
+        const auto targets = actionTargets();
+        for (const auto &serial : targets) m_settings->startGridDevice(serial);
+        if (!targets.isEmpty()) m_status->setText(QStringLiteral("已请求投屏 %1 台设备；已连接的设备无需重复启动").arg(targets.size()));
     });
     connect(stop, &QPushButton::clicked, this, [this] {
-        const auto selected = selectedDevices();
+        const auto selected = actionTargets();
         for (const auto &serial : selected) qsc::IDeviceManage::getInstance().disconnectDevice(serial);
+        if (!selected.isEmpty()) m_status->setText(QStringLiteral("已停止所选设备投屏"));
     });
     connect(apk, &QPushButton::clicked, this, [this] { batchFiles(true); });
     connect(files, &QPushButton::clicked, this, [this] { batchFiles(false); });
     connect(send, &QPushButton::clicked, this, [this, input] {
-        if (input->text().isEmpty()) return;
+        if (actionTargets().isEmpty()) return;
+        if (input->text().isEmpty()) {
+            QMessageBox::information(this, QStringLiteral("发送文字"), QStringLiteral("请先输入要发送的文字"));
+            input->setFocus();
+            return;
+        }
         GroupController::instance().setGridTargets({}, "", false);
         QApplication::clipboard()->setText(input->text());
         int count = 0;
@@ -252,20 +282,8 @@ DeviceGrid::DeviceGrid(Dialog *settings, QWidget *parent)
             if (device && m_cards.contains(serial)) { device->setDeviceClipboard(true); ++count; }
         }
         syncTargets();
+        if (!count) QMessageBox::information(this, QStringLiteral("发送文字"), QStringLiteral("请先对勾选设备开始投屏，并在手机上打开输入框"));
         m_status->setText(QStringLiteral("已向 %1 台手机发送粘贴请求").arg(count));
-    });
-    connect(&m_transfer, &qsc::AdbProcess::adbProcessResult, this, [this](qsc::AdbProcess::ADB_EXEC_RESULT result) {
-        if (result == qsc::AdbProcess::AER_SUCCESS_START) return;
-        if (!m_transferring) return;
-        m_transferTimeout->stop();
-        const Job job = m_jobs.dequeue();
-        bool success = result == qsc::AdbProcess::AER_SUCCESS_EXEC;
-        if (!success) ++m_failed;
-        ++m_done;
-        m_transferring = false;
-        m_jobsLabel->setText(QStringLiteral("已处理 %1 · 失败 %2 · 剩余 %3 ｜ %4：%5")
-            .arg(m_done).arg(m_failed).arg(m_jobs.size()).arg(job.serial, success ? QStringLiteral("完成") : m_transfer.getErrorOut().left(160)));
-        QTimer::singleShot(0, this, &DeviceGrid::runNextJob);
     });
     auto timer = new QTimer(this);
     connect(timer, &QTimer::timeout, settings, &Dialog::refreshGridDevices);
@@ -281,8 +299,20 @@ QStringList DeviceGrid::selectedDevices() const
     return result;
 }
 
+QStringList DeviceGrid::actionTargets()
+{
+    const auto targets = selectedDevices();
+    if (targets.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("选择设备"),
+            m_devices.isEmpty() ? QStringLiteral("请连接手机并允许 USB 调试，然后点击刷新设备")
+                                : QStringLiteral("请勾选设备名称前的方框，或点击“全选可见”，再执行操作"));
+    }
+    return targets;
+}
+
 void DeviceGrid::refreshDevices(const QStringList &serials)
 {
+    if (m_devices.isEmpty() && serials.size() == 1) m_selected.insert(serials.first());
     m_devices = serials;
     for (auto it = m_selected.begin(); it != m_selected.end();) {
         if (!serials.contains(*it)) it = m_selected.erase(it); else ++it;
@@ -330,6 +360,20 @@ void DeviceGrid::addVideo(const QString &serial, const QString &name, VideoForm 
     zoom->setFixedWidth(60);
     row->addWidget(zoom);
     layout->addLayout(row);
+    auto videoStatus = new QLabel(QStringLiteral("正在等待手机画面…"), card);
+    videoStatus->setWordWrap(true);
+    videoStatus->setStyleSheet("color:#f5cf76;padding:8px;");
+    layout->addWidget(videoStatus);
+    auto frameTimeout = new QTimer(card);
+    frameTimeout->setSingleShot(true);
+    connect(frameTimeout, &QTimer::timeout, videoStatus, [videoStatus] {
+        videoStatus->setText(QStringLiteral("未收到视频帧。请停止投屏，在“连接与设置”中将码率设为 8 Mbps 后重试；仍无画面可尝试更换编码器。"));
+    });
+    connect(video, &VideoForm::firstFrameRendered, videoStatus, [videoStatus, frameTimeout] {
+        frameTimeout->stop();
+        videoStatus->hide();
+    });
+    frameTimeout->start(8000);
     video->setParent(card);
     video->setWindowFlags(Qt::Widget);
     layout->addWidget(video, 1);
@@ -372,6 +416,7 @@ void DeviceGrid::relayout()
         if (!show) continue;
         int width = qMax(180, (m_scroll->viewport()->width() - 32 - 12 * (columns - 1)) / columns);
         int height = m_zoom.isEmpty() ? qBound(280, int(width * 1.8), 580) : qMax(450, m_scroll->viewport()->height() - 24);
+        height = qMin(height, qMax(1, m_scroll->viewport()->height() - 24));
         it->widget->setFixedHeight(height);
         m_grid->addWidget(it->widget, count / columns, count % columns);
         ++count;
@@ -403,33 +448,103 @@ void DeviceGrid::saveGroups()
 
 void DeviceGrid::batchFiles(bool apk)
 {
-    const auto targets = selectedDevices();
-    if (targets.isEmpty()) { m_status->setText(QStringLiteral("请先勾选设备")); return; }
+    const auto targets = actionTargets();
+    if (targets.isEmpty()) return;
     const QStringList files = QFileDialog::getOpenFileNames(this, apk ? QStringLiteral("选择 APK") : QStringLiteral("选择文件"), "", apk ? "*.apk" : "*");
     if (files.isEmpty()) return;
     if (QMessageBox::question(this, QStringLiteral("批量操作"), QStringLiteral("将 %1 个文件%2到 %3 台勾选手机？").arg(files.size()).arg(apk ? QStringLiteral("安装") : QStringLiteral("发送")).arg(targets.size())) != QMessageBox::Yes) return;
-    if (m_jobs.isEmpty()) { m_done = 0; m_failed = 0; }
-    for (const auto &serial : targets) for (const auto &file : files) m_jobs.enqueue({serial, file, apk});
+    if (m_jobs.isEmpty() && m_activeJobs.isEmpty()) { m_done = 0; m_failed = 0; }
+    for (const auto &serial : targets) for (const auto &file : files) {
+        const QStringList args = apk ? QStringList{"install", "-r", file}
+            : QStringList{"push", file, "/sdcard/Download/" + QFileInfo(file).fileName()};
+        m_jobs.enqueue({serial, args, (apk ? QStringLiteral("安装 ") : QStringLiteral("发送 ")) + QFileInfo(file).fileName()});
+    }
+    runNextJob();
+}
+
+void DeviceGrid::batchCommand()
+{
+    const auto targets = actionTargets();
+    if (targets.isEmpty()) return;
+    QString command = m_command->text().trimmed();
+    if (command.startsWith("adb ")) command = command.mid(4).trimmed();
+    if (command.startsWith("shell ")) command = command.mid(6).trimmed();
+    if (command.isEmpty() || command == "shell") {
+        QMessageBox::information(this, QStringLiteral("执行命令"), QStringLiteral("请输入 Android shell 命令"));
+        return;
+    }
+    if (QMessageBox::question(this, QStringLiteral("执行命令"),
+        QStringLiteral("在 %1 台勾选手机上执行以下命令？请确认命令不会误删数据或改变不希望修改的设置。\n\n%2")
+            .arg(targets.size()).arg(command)) != QMessageBox::Yes) return;
+    if (m_jobs.isEmpty() && m_activeJobs.isEmpty()) { m_done = 0; m_failed = 0; }
+    // Pass one shell string so Android, not the host, interprets quotes/pipes.
+    for (const auto &serial : targets) m_jobs.enqueue({serial, {"shell", command}, command});
     runNextJob();
 }
 
 void DeviceGrid::runNextJob()
 {
-    if (m_transferring || m_jobs.isEmpty()) return;
-    m_transferring = true;
-    m_transferTimeout->start(120000);
-    const auto &job = m_jobs.head();
-    m_jobsLabel->setText(QStringLiteral("正在%1：%2 → %3 · 待处理 %4")
-        .arg(job.apk ? QStringLiteral("安装") : QStringLiteral("发送"), QFileInfo(job.file).fileName(), job.serial).arg(m_jobs.size()));
-    if (job.apk) m_transfer.install(job.serial, job.file);
-    else m_transfer.push(job.serial, job.file, "/sdcard/Download/" + QFileInfo(job.file).fileName());
+    // Different phones run in parallel; jobs for one phone remain ordered.
+    for (int i = 0; i < m_jobs.size();) {
+        if (m_activeJobs.contains(m_jobs[i].serial)) { ++i; continue; }
+        const Job job = m_jobs.takeAt(i);
+        auto process = new qsc::AdbProcess(this);
+        auto timeout = new QTimer(process);
+        timeout->setSingleShot(true);
+        m_activeJobs.insert(job.serial, process);
+        connect(timeout, &QTimer::timeout, process, [process] {
+            process->setProperty("timedOut", true);
+            process->kill();
+        });
+        connect(process, &qsc::AdbProcess::adbProcessResult, this, [this, process, timeout, job](qsc::AdbProcess::ADB_EXEC_RESULT result) {
+            if (result == qsc::AdbProcess::AER_SUCCESS_START || m_activeJobs.value(job.serial) != process) return;
+            timeout->stop();
+            m_activeJobs.remove(job.serial); // errorOccurred and finished may both fire.
+            const bool success = result == qsc::AdbProcess::AER_SUCCESS_EXEC;
+            ++m_done;
+            if (!success) ++m_failed;
+            QString output = process->getStdOut() + "\n" + process->getErrorOut();
+            if (process->property("timedOut").toBool()) output += QStringLiteral("\n任务超时（120 秒）");
+            if (result == qsc::AdbProcess::AER_ERROR_MISSING_BINARY) output += QStringLiteral("\n无法启动 ADB，请检查程序路径");
+            m_jobOutput->appendPlainText(QStringLiteral("[%1] %2：%3\n%4")
+                .arg(job.serial, success ? QStringLiteral("完成") : QStringLiteral("失败"), job.description, output.trimmed()));
+            process->deleteLater();
+            updateJobsLabel();
+            QTimer::singleShot(0, this, &DeviceGrid::runNextJob);
+        });
+        m_jobOutput->appendPlainText(QStringLiteral("[%1] 开始：%2").arg(job.serial, job.description));
+        timeout->start(120000);
+        process->execute(job.serial, job.args);
+    }
+    updateJobsLabel();
+}
+
+void DeviceGrid::updateJobsLabel()
+{
+    m_jobsLabel->setText(QStringLiteral("已处理 %1 · 失败 %2 · 运行 %3 · 等待 %4")
+        .arg(m_done).arg(m_failed).arg(m_activeJobs.size()).arg(m_jobs.size()));
+}
+
+void DeviceGrid::cancelJobs()
+{
+    const int count = m_jobs.size() + m_activeJobs.size();
+    m_jobs.clear();
+    const auto active = m_activeJobs;
+    m_activeJobs.clear();
+    for (auto process : active) {
+        process->disconnect(this);
+        process->kill();
+        process->deleteLater();
+    }
+    updateJobsLabel();
+    m_jobOutput->appendPlainText(QStringLiteral("已取消 %1 个本地任务；手机上已完成或已启动的操作不会自动回滚。").arg(count));
 }
 
 void DeviceGrid::resizeEvent(QResizeEvent *event) { QWidget::resizeEvent(event); relayout(); }
 void DeviceGrid::closeEvent(QCloseEvent *event)
 {
-    if (!m_jobs.isEmpty() && QMessageBox::question(this, QStringLiteral("退出"), QStringLiteral("还有文件正在处理，确定中止并退出？")) != QMessageBox::Yes) { event->ignore(); return; }
-    m_transfer.kill();
+    if ((!m_jobs.isEmpty() || !m_activeJobs.isEmpty()) && QMessageBox::question(this, QStringLiteral("退出"), QStringLiteral("还有任务正在处理，确定中止并退出？")) != QMessageBox::Yes) { event->ignore(); return; }
+    cancelJobs();
     GroupController::instance().setGridTargets({}, "", false);
     qsc::IDeviceManage::getInstance().disconnectAllDevice();
     event->accept();

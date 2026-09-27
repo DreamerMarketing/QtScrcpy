@@ -234,6 +234,10 @@ void VideoForm::updateRender(int width, int height, uint8_t* dataY, uint8_t* dat
     }
     m_videoWidget->setFrameSize(QSize(width, height));
     m_videoWidget->updateTextures(dataY, dataU, dataV, linesizeY, linesizeU, linesizeV);
+    if (!m_receivedFrame) {
+        m_receivedFrame = true;
+        emit firstFrameRendered();
+    }
 }
 
 void VideoForm::setSerial(const QString &serial)
@@ -671,6 +675,10 @@ void VideoForm::onFrameMetal(void *cvPixelBuffer, int width, int height)
 
     updateShowSize(QSize(width, height));
     m_metalWidget->renderFrame((CVPixelBufferRef)cvPixelBuffer, width, height);
+    if (!m_receivedFrame) {
+        m_receivedFrame = true;
+        emit firstFrameRendered();
+    }
 #else
     Q_UNUSED(cvPixelBuffer);
     Q_UNUSED(width);

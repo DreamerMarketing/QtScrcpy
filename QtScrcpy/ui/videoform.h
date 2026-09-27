@@ -28,6 +28,7 @@ public:
 signals:
     void activated(const QString &serial);
     void zoomRequested(const QString &serial);
+    void firstFrameRendered();
 public:
     void staysOnTop(bool top = true);
     void updateShowSize(const QSize &newSize);
@@ -101,6 +102,7 @@ private:
     QPoint m_dragPosition;
     float m_widthHeightRatio = 0.5f;
     bool m_embedded = false;
+    bool m_receivedFrame = false;
     bool m_skin = true;
     QPoint m_fullScreenBeforePos;
     QString m_serial;
